@@ -502,12 +502,6 @@ pylint src/
 
 ---
 
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
 ## 📖 Citation
 
 If you use this project in your research, please cite:
@@ -532,18 +526,6 @@ If you use this project in your research, please cite:
 - **Kaggle Community** for various COVID-19 X-ray datasets
 - **TensorFlow/Keras Team** for the deep learning framework
 - All contributors who have helped improve this project
-
----
-
-## 📧 Contact
-
-**Tanmay** - IIT Dharwad SAI
-
-- GitHub: [@Tanmay-IITDSAI](https://github.com/Tanmay-IITDSAI)
-- Email: [Your Email]
-- LinkedIn: [Your LinkedIn]
-
-**Project Link**: [https://github.com/Tanmay-IITDSAI/X-Ray-Disease-Prediction](https://github.com/Tanmay-IITDSAI/X-Ray-Disease-Prediction)
 
 ---
 

@@ -92,7 +92,7 @@ jupyter notebook model.ipynb
 
 You'll need the COVID_IEEE image set (organized into `covid/`, `normal/`, and `virus/` subfolders) placed alongside the notebook, plus PySpark, TensorFlow/Keras, OpenCV, and standard scientific Python packages — the image dataset itself isn't included in this repository.
 
-## Limitations & Honest Notes
+## Honest Notes
 
 - **Small dataset.** 1,823 images total is modest for deep learning, even with transfer learning and augmentation — results should be read as a promising proof of concept rather than a clinically validated result.
 - **The final reported 95% accuracy is not a held-out number.** That figure comes from evaluating the model on the same train+validation+test data it was just fine-tuned on. The one genuinely unseen-data result in this project is the pre-merge test-set pass: **93% accuracy**, which is the number to cite if you need an honest estimate of generalization.

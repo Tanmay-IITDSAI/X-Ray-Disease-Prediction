@@ -1,546 +1,100 @@
-# 🩺 X-Ray Disease Prediction
+# Chest X-Ray Classification: Normal vs. Viral Pneumonia vs. COVID-19
 
-<div align="center">
+![Python](https://img.shields.io/badge/Python-3-blue.svg)
+![TensorFlow](https://img.shields.io/badge/TensorFlow-Keras-orange.svg)
+![Status](https://img.shields.io/badge/Status-Course%20Project-lightgrey.svg)
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)
-![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-orange.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Contributions](https://img.shields.io/badge/Contributions-Welcome-brightgreen.svg)
+A transfer-learning model that classifies chest X-ray images into three categories — Normal, Viral Pneumonia, or COVID-19 — using a fine-tuned MobileNetV2 backbone.
 
-**An advanced deep learning system for automated disease detection in chest X-ray images**
+## Table of Contents
 
-[Features](#-features) • [Demo](#-demo) • [Installation](#-installation) • [Usage](#-usage) • [Documentation](#-documentation) • [Contributing](#-contributing)
+- [Overview](#overview)
+- [Dataset](#dataset)
+- [Repository Contents](#repository-contents)
+- [Methodology](#methodology)
+- [Results](#results)
+- [Reproducing This](#reproducing-this)
+- [Limitations & Honest Notes](#limitations--honest-notes)
 
-</div>
+## Overview
 
----
+Distinguishing COVID-19 from viral pneumonia on a chest X-ray is a task where the visual differences can be subtle even to a trained eye — both present as lung congestion, differing mainly in pattern and severity. This project explores whether a lightweight, pre-trained image classifier (MobileNetV2, chosen for its small size relative to heavier backbones) can learn to tell the three classes apart from a modest set of labeled X-rays, using transfer learning rather than training a CNN from scratch.
 
-## 📋 Table of Contents
+## Dataset
 
-- [Overview](#-overview)
-- [Features](#-features)
-- [Architecture](#-architecture)
-- [Dataset](#-dataset)
-- [Installation](#-installation)
-- [Quick Start](#-quick-start)
-- [Model Performance](#-model-performance)
-- [API Reference](#-api-reference)
-- [Project Structure](#-project-structure)
-- [Contributing](#-contributing)
-- [License](#-license)
-- [Citation](#-citation)
-- [Acknowledgments](#-acknowledgments)
+- **Source:** COVID_IEEE chest X-ray image set
+- **Total images:** 1,823 — 668 Normal, 619 Viral Pneumonia, 536 COVID-19
+- **Split:** 70% train / 15% validation / 15% test → 1,276 / 274 / 273 images respectively
+- **Image size:** 224×224, 3-channel (RGB)
 
----
+A quick visual check of samples from each class confirmed the expected pattern before any modeling began: normal X-rays show clear lungs, viral pneumonia shows mild congestion, and COVID-19 cases show more pronounced congestion — motivating the choice of a model architecture with enough capacity to pick up on that gradient rather than a binary present/absent classifier.
 
-## 🔍 Overview
+## Repository Contents
 
-This project implements a state-of-the-art deep learning pipeline for detecting multiple diseases from chest X-ray images. Using convolutional neural networks (CNNs) and transfer learning techniques, the system can identify various pathologies including pneumonia, tuberculosis, COVID-19, and other thoracic abnormalities with high accuracy.
+- **`model.ipynb`** — the complete pipeline: data loading, preprocessing, model definition, training, fine-tuning, and evaluation, in a single notebook
 
-### Key Highlights
+That's the entire repository. There's no separate `src/`, no API layer, no saved model weights committed here — the notebook produces `.h5` model files when run, but those are build artifacts, not checked into version control.
 
-- **Multi-class Disease Detection**: Identifies 14+ different pathologies from chest X-rays
-- **High Accuracy**: Achieves 95%+ accuracy on test datasets
-- **Clinical Interpretability**: Includes Grad-CAM visualizations for model explainability
-- **Production Ready**: REST API for easy integration into healthcare systems
-- **Real-time Processing**: Optimized for fast inference on both GPU and CPU
+## Methodology
 
----
+**1. Loading.** Images are loaded via PySpark's image data source (`ImageSchema`) rather than a simpler approach like PIL or OpenCV directly — an unusual choice at this dataset size (1,823 images fits comfortably in memory without needing distributed processing), but that's the actual loading path used.
 
-## ✨ Features
+**2. Image enhancement.** Each image goes through white-balance correction (percentile-based channel clipping) followed by CLAHE (Contrast-Limited Adaptive Histogram Equalization) — a standard pairing for X-ray images specifically, since it boosts local contrast in the lung region without over-amplifying noise the way global histogram equalization would.
 
-### 🧠 Deep Learning Models
+**3. Normalization and splitting.** Pixel values are normalized, then the combined dataset is split 70/15/15 into train/validation/test sets.
 
-- **Multiple Architectures**: ResNet50, DenseNet121, EfficientNet, VGG16
-- **Transfer Learning**: Pre-trained on ImageNet with fine-tuning
-- **Ensemble Methods**: Combining multiple models for improved accuracy
-- **Custom CNN**: Lightweight architecture for edge deployment
+**4. Augmentation.** Random horizontal flips and small rotations are applied to the training set only, to help the model generalize despite the modest dataset size.
 
-### 🔬 Medical Imaging Capabilities
+**5. Model: MobileNetV2 transfer learning, in two stages.**
+   - **Stage 1 (frozen base):** MobileNetV2 pre-trained on ImageNet, with its convolutional base frozen and only a new classification head trained on top, using Adam (`lr=0.001`), early stopping (patience 20 on validation accuracy), and learning-rate reduction on plateau.
+   - **Stage 2 (fine-tuning):** layers from index 120 onward in the 155-layer MobileNetV2 base are unfrozen and trained further at a much lower learning rate, letting the model adapt its higher-level features specifically to X-ray images rather than relying solely on generic ImageNet features.
 
-- **Preprocessing Pipeline**: Automatic image normalization, resizing, and enhancement
-- **Data Augmentation**: Rotation, flipping, zooming for robust training
-- **Heatmap Generation**: Grad-CAM visualizations showing regions of interest
-- **Multi-label Classification**: Simultaneous detection of multiple conditions
+**6. Final retraining.** After validating the approach on the train/val/test split, the model is fine-tuned once more on the full dataset (train + validation + test merged, 1,823 images) to produce the final saved model — a common step when a dataset is small enough that using every available labeled image for the final model is more valuable than holding a permanent test set in reserve.
 
-### 🚀 Deployment Options
+## Results
 
-- **Web Interface**: Interactive dashboard for uploading and analyzing X-rays
-- **REST API**: RESTful endpoints for programmatic access
-- **Batch Processing**: Handle multiple images simultaneously
-- **Docker Support**: Containerized deployment for consistency
+**Held-out test set (273 images, genuinely unseen during training):**
 
-### 📊 Analytics & Reporting
+| Class | Precision | Recall | F1 | Support |
+|---|---|---|---|---|
+| Normal | 0.90 | 0.93 | 0.92 | 100 |
+| COVID-19 | 0.90 | 0.90 | 0.90 | 93 |
+| Viral Pneumonia | 0.99 | 0.95 | 0.97 | 80 |
+| **Accuracy** | | | **93%** | 273 |
 
-- **Performance Metrics**: Accuracy, precision, recall, F1-score, AUC-ROC
-- **Confusion Matrix**: Visual representation of classification results
-- **Report Generation**: Automated PDF reports with findings
-- **Logging System**: Comprehensive logging for monitoring and debugging
+**Validation set (274 images), for reference:**
 
----
+| Class | Precision | Recall | F1 | Support |
+|---|---|---|---|---|
+| Normal | 0.94 | 0.95 | 0.95 | 100 |
+| COVID-19 | 0.92 | 0.94 | 0.93 | 93 |
+| Viral Pneumonia | 0.99 | 0.95 | 0.97 | 81 |
+| **Accuracy** | | | **95%** | 274 |
 
-## 🏗️ Architecture
+**Final model, evaluated on the full merged dataset (1,823 images) it was subsequently fine-tuned on:**
 
-```
-Input X-Ray Image
-       ↓
-Preprocessing (Resize, Normalize, Augment)
-       ↓
-Feature Extraction (CNN Backbone)
-       ↓
-Classification Head (Dense Layers)
-       ↓
-Multi-Label Output (Disease Probabilities)
-       ↓
-Post-Processing (Thresholding, Grad-CAM)
-       ↓
-Prediction Results + Visualization
-```
+| Class | Precision | Recall | F1 | Support |
+|---|---|---|---|---|
+| Normal | 0.89 | 0.99 | 0.94 | 668 |
+| COVID-19 | 0.99 | 0.88 | 0.93 | 619 |
+| Viral Pneumonia | 1.00 | 0.98 | 0.99 | 536 |
+| **Accuracy** | | | **95%** | 1,823 |
 
-### Model Architecture Details
+Viral Pneumonia is consistently the easiest class to identify correctly across every evaluation (highest precision and recall throughout), while Normal and COVID-19 show more confusion with each other — sensible, given that mild-to-moderate lung congestion is where the two categories visually overlap most.
 
-Our primary model uses a **DenseNet121** backbone with the following specifications:
-
-- **Input**: 224×224×3 RGB images
-- **Backbone**: DenseNet121 (pre-trained on ImageNet)
-- **Global Average Pooling**: Reduces spatial dimensions
-- **Dense Layers**: 1024 → 512 → 256 neurons with dropout
-- **Output**: 14 sigmoid neurons (multi-label classification)
-- **Loss Function**: Binary cross-entropy
-- **Optimizer**: Adam with learning rate scheduling
-
----
-
-## 📊 Dataset
-
-The model is trained on a combination of publicly available medical imaging datasets:
-
-| Dataset | Images | Classes | Source |
-|---------|--------|---------|--------|
-| ChestX-ray14 | 112,120 | 14 diseases | NIH Clinical Center |
-| CheXpert | 224,316 | 14 observations | Stanford ML Group |
-| RSNA Pneumonia | 30,000 | Pneumonia/Normal | RSNA Challenge |
-| COVID-19 Dataset | 15,000+ | COVID-19/Normal | Various sources |
-
-### Detected Conditions
-
-1. Atelectasis
-2. Cardiomegaly
-3. Effusion
-4. Infiltration
-5. Mass
-6. Nodule
-7. Pneumonia
-8. Pneumothorax
-9. Consolidation
-10. Edema
-11. Emphysema
-12. Fibrosis
-13. Pleural Thickening
-14. Hernia
-
----
-
-## 🚀 Installation
-
-### Prerequisites
-
-- Python 3.8 or higher
-- pip package manager
-- (Optional) CUDA-enabled GPU for faster training
-
-### Option 1: Clone and Install
+## Reproducing This
 
 ```bash
-# Clone the repository
 git clone https://github.com/Tanmay-IITDSAI/X-Ray-Disease-Prediction.git
 cd X-Ray-Disease-Prediction
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+jupyter notebook model.ipynb
 ```
 
-### Option 2: Docker Installation
+You'll need the COVID_IEEE image set (organized into `covid/`, `normal/`, and `virus/` subfolders) placed alongside the notebook, plus PySpark, TensorFlow/Keras, OpenCV, and standard scientific Python packages — the image dataset itself isn't included in this repository.
 
-```bash
-# Build Docker image
-docker build -t xray-prediction .
+## Limitations & Honest Notes
 
-# Run container
-docker run -p 5000:5000 xray-prediction
-```
-
-### Option 3: Conda Environment
-
-```bash
-# Create conda environment
-conda env create -f environment.yml
-conda activate xray-prediction
-```
-
----
-
-## 🎯 Quick Start
-
-### 1. Download Pre-trained Models
-
-```bash
-# Download model weights
-python scripts/download_models.py
-```
-
-### 2. Run Prediction on a Single Image
-
-```python
-from src.predictor import XRayPredictor
-
-# Initialize predictor
-predictor = XRayPredictor(model_path='models/densenet121_best.h5')
-
-# Make prediction
-result = predictor.predict('path/to/xray.jpg')
-
-print(f"Predictions: {result['predictions']}")
-print(f"Confidence: {result['confidence']}")
-```
-
-### 3. Start Web Interface
-
-```bash
-# Launch Flask application
-python app.py
-
-# Access at http://localhost:5000
-```
-
-### 4. Use REST API
-
-```bash
-# Start API server
-uvicorn api.main:app --reload
-
-# Make prediction request
-curl -X POST "http://localhost:8000/predict" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@xray_image.jpg"
-```
-
----
-
-## 📈 Model Performance
-
-### Overall Metrics
-
-| Model | Accuracy | Precision | Recall | F1-Score | AUC-ROC |
-|-------|----------|-----------|--------|----------|---------|
-| DenseNet121 | 95.3% | 93.8% | 94.1% | 93.9% | 0.978 |
-| ResNet50 | 94.1% | 92.5% | 93.2% | 92.8% | 0.968 |
-| EfficientNetB0 | 95.8% | 94.2% | 94.6% | 94.4% | 0.982 |
-| Ensemble | **96.2%** | **95.1%** | **95.3%** | **95.2%** | **0.987** |
-
-### Per-Class Performance
-
-<details>
-<summary>Click to expand detailed metrics</summary>
-
-| Disease | Precision | Recall | F1-Score |
-|---------|-----------|--------|----------|
-| Atelectasis | 0.92 | 0.89 | 0.90 |
-| Cardiomegaly | 0.96 | 0.94 | 0.95 |
-| Pneumonia | 0.94 | 0.95 | 0.94 |
-| Effusion | 0.93 | 0.92 | 0.92 |
-| Pneumothorax | 0.91 | 0.88 | 0.89 |
-
-</details>
-
----
-
-## 📁 Project Structure
-
-```
-X-Ray-Disease-Prediction/
-│
-├── 📂 data/
-│   ├── raw/                    # Raw X-ray images
-│   ├── processed/              # Preprocessed images
-│   ├── train/                  # Training dataset
-│   ├── val/                    # Validation dataset
-│   └── test/                   # Test dataset
-│
-├── 📂 models/
-│   ├── densenet121_best.h5     # Pre-trained DenseNet
-│   ├── resnet50_best.h5        # Pre-trained ResNet
-│   ├── ensemble_model.h5       # Ensemble model
-│   └── configs/                # Model configuration files
-│
-├── 📂 notebooks/
-│   ├── 01_data_exploration.ipynb
-│   ├── 02_preprocessing.ipynb
-│   ├── 03_model_training.ipynb
-│   ├── 04_evaluation.ipynb
-│   └── 05_visualization.ipynb
-│
-├── 📂 src/
-│   ├── __init__.py
-│   ├── data_loader.py          # Data loading utilities
-│   ├── preprocessing.py        # Image preprocessing
-│   ├── models.py               # Model architectures
-│   ├── training.py             # Training pipeline
-│   ├── evaluation.py           # Evaluation metrics
-│   ├── predictor.py            # Inference engine
-│   ├── visualization.py        # Grad-CAM and plots
-│   └── utils.py                # Helper functions
-│
-├── 📂 api/
-│   ├── __init__.py
-│   ├── main.py                 # FastAPI application
-│   ├── routes.py               # API endpoints
-│   ├── schemas.py              # Pydantic models
-│   └── dependencies.py         # API dependencies
-│
-├── 📂 web/
-│   ├── app.py                  # Flask web application
-│   ├── templates/              # HTML templates
-│   ├── static/                 # CSS, JS, images
-│   └── uploads/                # Uploaded X-rays
-│
-├── 📂 scripts/
-│   ├── download_models.py      # Download pre-trained models
-│   ├── train_model.py          # Training script
-│   ├── evaluate_model.py       # Evaluation script
-│   └── generate_report.py      # Report generation
-│
-├── 📂 tests/
-│   ├── test_preprocessing.py
-│   ├── test_models.py
-│   ├── test_api.py
-│   └── test_predictor.py
-│
-├── 📂 docs/
-│   ├── API.md                  # API documentation
-│   ├── MODELS.md               # Model documentation
-│   ├── DATASET.md              # Dataset information
-│   └── DEPLOYMENT.md           # Deployment guide
-│
-├── 📂 configs/
-│   ├── config.yaml             # Main configuration
-│   ├── model_config.yaml       # Model parameters
-│   └── training_config.yaml    # Training parameters
-│
-├── 📄 .gitignore
-├── 📄 .dockerignore
-├── 📄 Dockerfile
-├── 📄 docker-compose.yml
-├── 📄 requirements.txt
-├── 📄 environment.yml
-├── 📄 setup.py
-├── 📄 LICENSE
-├── 📄 CONTRIBUTING.md
-├── 📄 CODE_OF_CONDUCT.md
-└── 📄 README.md
-```
-
----
-
-## 🔧 Configuration
-
-Create a `config.yaml` file in the root directory:
-
-```yaml
-# Model Configuration
-model:
-  architecture: "densenet121"
-  input_shape: [224, 224, 3]
-  num_classes: 14
-  weights: "imagenet"
-  
-# Training Configuration
-training:
-  batch_size: 32
-  epochs: 50
-  learning_rate: 0.0001
-  early_stopping_patience: 10
-  
-# Data Configuration
-data:
-  train_dir: "data/train"
-  val_dir: "data/val"
-  test_dir: "data/test"
-  augmentation: true
-  
-# Inference Configuration
-inference:
-  confidence_threshold: 0.5
-  batch_size: 8
-  generate_heatmap: true
-```
-
----
-
-## 🌐 API Reference
-
-### Endpoints
-
-#### `POST /predict`
-
-Predict diseases from an X-ray image.
-
-**Request:**
-```bash
-curl -X POST "http://localhost:8000/predict" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@xray.jpg"
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "predictions": [
-    {
-      "disease": "Pneumonia",
-      "probability": 0.87,
-      "confidence": "high"
-    },
-    {
-      "disease": "Effusion",
-      "probability": 0.23,
-      "confidence": "low"
-    }
-  ],
-  "heatmap_url": "/results/heatmap_12345.png",
-  "processing_time": 1.23
-}
-```
-
-#### `GET /health`
-
-Check API health status.
-
-**Response:**
-```json
-{
-  "status": "healthy",
-  "model_loaded": true,
-  "version": "1.0.0"
-}
-```
-
-See [API.md](docs/API.md) for complete documentation.
-
----
-
-## 🎓 Training Your Own Model
-
-```bash
-# Prepare your dataset
-python scripts/prepare_data.py --data_dir /path/to/xrays
-
-# Train model
-python scripts/train_model.py \
-  --architecture densenet121 \
-  --epochs 50 \
-  --batch_size 32 \
-  --learning_rate 0.0001
-
-# Evaluate model
-python scripts/evaluate_model.py \
-  --model_path models/densenet121_best.h5 \
-  --test_dir data/test
-```
-
----
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-pytest tests/
-
-# Run specific test file
-pytest tests/test_predictor.py
-
-# Run with coverage
-pytest --cov=src tests/
-```
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
-### How to Contribute
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Setup
-
-```bash
-# Install development dependencies
-pip install -r requirements-dev.txt
-
-# Install pre-commit hooks
-pre-commit install
-
-# Run code formatting
-black src/
-isort src/
-
-# Run linting
-flake8 src/
-pylint src/
-```
-
----
-
-## 📖 Citation
-
-If you use this project in your research, please cite:
-
-```bibtex
-@software{xray_disease_prediction_2025,
-  author = {Tanmay},
-  title = {X-Ray Disease Prediction: Deep Learning for Medical Image Analysis},
-  year = {2025},
-  publisher = {GitHub},
-  url = {https://github.com/Tanmay-IITDSAI/X-Ray-Disease-Prediction}
-}
-```
-
----
-
-## 🙏 Acknowledgments
-
-- **NIH Clinical Center** for the ChestX-ray14 dataset
-- **Stanford ML Group** for the CheXpert dataset
-- **RSNA** for the Pneumonia Detection Challenge dataset
-- **Kaggle Community** for various COVID-19 X-ray datasets
-- **TensorFlow/Keras Team** for the deep learning framework
-- All contributors who have helped improve this project
-
----
-
-## ⭐ Star History
-
-If you find this project helpful, please consider giving it a star!
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Tanmay-IITDSAI/X-Ray-Disease-Prediction&type=Date)](https://star-history.com/#Tanmay-IITDSAI/X-Ray-Disease-Prediction&Date)
-
----
-
-<div align="center">
-
-**Made with ❤️ for advancing healthcare through AI**
-
-[⬆ Back to Top](#-x-ray-disease-prediction)
-
-</div>
+- **Small dataset.** 1,823 images total is modest for deep learning, even with transfer learning and augmentation — results should be read as a promising proof of concept rather than a clinically validated result.
+- **The final reported 95% accuracy is not a held-out number.** That figure comes from evaluating the model on the same train+validation+test data it was just fine-tuned on. The one genuinely unseen-data result in this project is the pre-merge test-set pass: **93% accuracy**, which is the number to cite if you need an honest estimate of generalization.
+- **Three classes, not a general-purpose diagnostic tool.** This model distinguishes Normal / Viral Pneumonia / COVID-19 specifically — it does not detect the wider range of thoracic pathologies (e.g., cardiomegaly, effusion, pneumothorax) sometimes associated with chest X-ray classification projects.
+- **No formal hyperparameter search.** Learning rates, freeze points, and epoch counts were set manually rather than tuned via a systematic search.
